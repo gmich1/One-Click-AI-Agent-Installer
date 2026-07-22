@@ -77,17 +77,23 @@ This auto-discovers your unified key and writes it into the Hermes profile. Done
 
 ### 5. Use Hermes with FreeLLMAPI
 
-```bash
-hermes --profile freellmapi
-```
+The installer sets `freellmapi` as your default profile — both CLI and Desktop pick it up automatically.
 
-Or set it as your permanent default:
+**CLI:**
 
 ```bash
-hermes profile use freellmapi
+hermes
 ```
 
-Switch back anytime:
+**Desktop:**
+
+```bash
+hermes desktop
+```
+
+The installer syncs FreeLLMAPI config to the default profile — the desktop app should pick it up automatically. If a setup wizard appears on first launch, the provider fields will be pre-filled with FreeLLMAPI settings. Subsequent launches open directly with FreeLLMAPI.
+
+Switch back to the original default anytime:
 
 ```bash
 hermes profile use default
@@ -149,16 +155,22 @@ You sign up for free-tier accounts at the providers you want, then paste their A
 # Done!
 ```
 
-### Phase 4: Use Hermes
+### Phase 4: Use Hermes (CLI or Desktop)
+
+The installer sets `freellmapi` as your default profile so both surfaces pick it up automatically.
 
 ```bash
-# With the FreeLLMAPI profile
-hermes --profile freellmapi
+# CLI — uses FreeLLMAPI by default
+hermes
 
-# Or set it as default (all future sessions use FreeLLMAPI)
-hermes profile use freellmapi
+# Desktop — same config, same sessions
+hermes desktop
+```
 
-# Switch back to default anytime
+The installer also syncs FreeLLMAPI config into the **default** profile so the desktop app's first-run wizard sees it pre-filled. If a setup wizard appears, the provider fields will already be populated with FreeLLMAPI settings.
+
+```bash
+# Switch back to original default anytime
 hermes profile use default
 
 # Check available models via FreeLLMAPI

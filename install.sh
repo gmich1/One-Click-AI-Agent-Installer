@@ -635,9 +635,26 @@ console.log(row ? row.value : '');
       model_count="0"
     fi
     if [[ "$model_count" -gt 0 ]]; then
-      say "Key validated — $model_count models available!"
+      say "Key validated — $model_count models in catalog."
     else
       info "Key accepted by FreeLLMAPI (model list may populate after adding provider keys)."
+    fi
+
+    # Check if any provider keys are actually configured — without them,
+    # FreeLLMAPI can't route to any real LLM and chat requests will hang.
+    local provider_count
+    provider_count="$(docker exec freellmapi node -e "
+const Database = require('better-sqlite3');
+const db = new Database('/app/server/data/freeapi.db');
+const count = db.prepare('SELECT COUNT(*) as c FROM api_keys WHERE enabled = 1').get();
+console.log(count ? count.c : 0);
+" 2>/dev/null || echo "0")"
+    if [[ "$provider_count" -eq 0 ]]; then
+      warn "No provider API keys found in FreeLLMAPI — chat requests will hang!"
+      info "  Open $DASHBOARD_URL → Keys page → add provider API keys."
+      info "  Then re-run './install.sh --configure' to re-validate."
+    else
+      info "FreeLLMAPI has $provider_count provider key(s) configured."
     fi
   else
     warn "Could not validate key against FreeLLMAPI. Make sure it's running:"
@@ -647,16 +664,42 @@ console.log(row ? row.value : '');
 
   # ── Success ──────────────────────────────────────────────────────────────
   say "Hermes is now configured to use FreeLLMAPI!"
+
+  # Set this as the default profile so both CLI and desktop pick it up
+  if hermes profile use "$HERMES_PROFILE" 2>/dev/null; then
+    info "Set '$HERMES_PROFILE' as the default profile (CLI + Desktop)."
+  else
+    info "Could not set default profile. Run: hermes profile use $HERMES_PROFILE"
+  fi
+
+  # Also sync FreeLLMAPI config into the default profile so the desktop
+  # app's first-run wizard sees a configured backend and skips onboarding.
+  info "Syncing FreeLLMAPI config to default profile (desktop-ready)..."
+  # Use a tool-supporting model by default — agents require function calling.
+  # 'auto' is ideal once you have multiple providers; with only one (e.g. Groq),
+  # pin a tool-capable model to avoid "1 model lacks tool-calling" errors.
+  hermes --profile default config set model.default auto 2>/dev/null || true
+  hermes --profile default config set model.base_url "$API_BASE_URL" 2>/dev/null || true
+  hermes --profile default config set model.api_key "$unified_key" 2>/dev/null || true
+  hermes --profile default config set model.provider "" 2>/dev/null || true
+
   echo ""
-  echo "  Use it now:"
-  echo "    hermes --profile $HERMES_PROFILE"
-  echo ""
-  echo "  Set as default:"
-  echo "    hermes profile use $HERMES_PROFILE"
-  echo ""
-  echo "  See available models:"
-  echo "    curl -s -H 'Authorization: Bearer YOUR_KEY' $API_BASE_URL/models | python3 -m json.tool"
-  echo ""
+  if [[ "${provider_count:-0}" -eq 0 ]]; then
+    warn "IMPORTANT: No provider API keys configured in FreeLLMAPI yet!"
+    echo "  Without provider keys, FreeLLMAPI can't route to any LLM."
+    echo "  Chat requests will hang or timeout."
+    echo ""
+    echo "  → Open $DASHBOARD_URL → Keys page"
+    echo "  → Sign up for free-tier providers (Google, Groq, etc.)"
+    echo "  → Paste their API keys into FreeLLMAPI"
+    echo "  → Then your agent will work!"
+  else
+    echo "  CLI:"
+    echo "    hermes                          # uses default (FreeLLMAPI)"
+    echo ""
+    echo "  Desktop:"
+    echo "    hermes desktop                  # opens with FreeLLMAPI configured"
+  fi
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
