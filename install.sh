@@ -24,6 +24,12 @@
 
 set -euo pipefail
 
+# ── Ensure common Docker paths are in PATH (macOS) ─────────────────────────
+# /usr/local/bin holds the docker symlink; Docker.app holds the real binary.
+# Non-login shells (e.g. script shebangs) may not inherit these from the
+# user's profile, causing "Docker not found" when it's actually installed.
+export PATH="/usr/local/bin:/Applications/Docker.app/Contents/Resources/bin:$PATH"
+
 # ── Config (env-overridable) ──────────────────────────────────────────────────
 INSTALL_DIR="${FREELLMAPI_DIR:-$HOME/freellmapi}"
 PORT="${FREELLMAPI_PORT:-3001}"
@@ -34,9 +40,18 @@ API_HEALTH_URL="http://127.0.0.1:$PORT/api/ping"
 API_BASE_URL="http://127.0.0.1:$PORT/v1"
 DASHBOARD_URL="http://localhost:$PORT"
 
-# ── Colors ────────────────────────────────────────────────────────────────────
-BOLD='\033[1m'; GREEN='\033[0;32m'; BLUE='\033[0;34m'
-YELLOW='\033[1;33m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC='\033[0m'
+# Cached on first install — extracted from Docker logs so normal users
+# don't have to hunt through console output for the sign-up code.
+SETUP_CODE=""
+
+# ── Colors (printf-based — portable across bash, zsh, sh) ─────────────────────
+BOLD="$(printf '\033[1m')"
+GREEN="$(printf '\033[0;32m')"
+BLUE="$(printf '\033[0;34m')"
+YELLOW="$(printf '\033[1;33m')"
+RED="$(printf '\033[0;31m')"
+CYAN="$(printf '\033[0;36m')"
+NC="$(printf '\033[0m')"
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 say()  { printf "${GREEN}==>${NC} ${BOLD}%s${NC}\n" "$*"; }
@@ -197,7 +212,9 @@ install_hermes() {
     die "curl is required. Install it and re-run."
   fi
 
-  curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash || \
+  # --skip-setup: don't launch the interactive hermes setup wizard.
+  # We configure Hermes ourselves non-interactively in later phases.
+  curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash -s -- --skip-setup || \
     die "Hermes install failed. Try manually: curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash"
 
   # Ensure ~/.local/bin is in PATH for this session
@@ -252,8 +269,17 @@ _install_docker_macos() {
   local arch dmg_url tmp_dmg volume
   arch="$(uname -m)"
   case "$arch" in
-    arm64) dmg_url="https://desktop.docker.com/mac/main/arm64/Docker.dmg" ;;
-    *)     dmg_url="https://desktop.docker.com/mac/main/amd64/Docker.dmg" ;;
+    arm64)
+      info "Detected Apple Silicon chip — downloading arm64 installer."
+      dmg_url="https://desktop.docker.com/mac/main/arm64/Docker.dmg"
+      ;;
+    x86_64|amd64)
+      info "Detected Intel chip — downloading amd64 installer."
+      dmg_url="https://desktop.docker.com/mac/main/amd64/Docker.dmg"
+      ;;
+    *)
+      die "Unknown architecture '$arch'. Expected arm64 (Apple Silicon) or x86_64 (Intel). Install Docker manually: https://docs.docker.com/get-docker/"
+      ;;
   esac
 
   tmp_dmg="$(mktemp -d)/Docker.dmg"
@@ -464,6 +490,14 @@ DOCKEREOF
     info "Dashboard: $DASHBOARD_URL"
     info "API:       $API_BASE_URL"
 
+    # ── Extract one-time setup code from Docker logs ──────────────────────
+    # The dashboard may prompt for this code when accessed from a non-loopback
+    # address (Docker port-forwarding often makes localhost appear remote).
+    SETUP_CODE="$(docker logs freellmapi 2>/dev/null | grep -m1 'First-run setup code:' | sed 's/.*First-run setup code: *//')"
+    if [[ -n "$SETUP_CODE" ]]; then
+      info "Setup code: ${CYAN}$SETUP_CODE${NC} (needed if the dashboard prompts for it)"
+    fi
+
     # Open dashboard
     if command -v open >/dev/null 2>&1; then
       open "$DASHBOARD_URL"
@@ -490,23 +524,30 @@ create_hermes_profile() {
     die "Hermes is not installed. Run the full installer first."
   fi
 
-  if hermes profile list 2>/dev/null | grep -qFx "$HERMES_PROFILE"; then
-    info "Hermes profile '$HERMES_PROFILE' already exists — preserving existing config."
-    info "Run './install.sh --configure' to update its API key."
-  else
-    say "Creating Hermes profile: $HERMES_PROFILE"
-    hermes profile create "$HERMES_PROFILE" \
-      --description "FreeLLMAPI — 28 free LLM providers through a single OpenAI-compatible endpoint" || \
-      warn "Could not create profile via CLI. Creating manually..."
+  # Check if profile already exists: try deleting it first (idempotent if
+  # absent, cleans up stale registry entries from a prior uninstall), then
+  # create fresh.  hermes profile list outputs a table, so we grep for the
+  # profile name appearing anywhere in the output (not -Fx whole-line).
+  if hermes profile list 2>/dev/null | grep -q "$HERMES_PROFILE"; then
+    say "Hermes profile '$HERMES_PROFILE' already exists — re-registering..."
+    hermes profile delete -y "$HERMES_PROFILE" 2>/dev/null || true
+  fi
 
-    # Ensure the profile directory exists even if CLI creation failed
-    mkdir -p "$PROFILE_DIR"
-    say "Profile '$HERMES_PROFILE' ready."
+  say "Creating Hermes profile: $HERMES_PROFILE"
+  hermes profile create "$HERMES_PROFILE" \
+    --description "FreeLLMAPI — 28 free LLM providers through a single OpenAI-compatible endpoint" || \
+    warn "Could not create profile via CLI. Creating manually..."
 
-    # Write config with placeholder key (user runs --configure to fill it in)
+  # Ensure the profile directory exists even if CLI creation failed
+  mkdir -p "$PROFILE_DIR"
+
+  # Only write config if it doesn't already exist (preserve user's config on re-install)
+  if [[ ! -f "$PROFILE_DIR/config.yaml" ]]; then
     say "Writing profile configuration..."
     write_hermes_config ""   # empty key — user runs --configure later
     write_hermes_dotenv ""   # empty .env with instructions
+  else
+    info "Preserving existing profile config."
   fi
 
   info "Profile stored at: $PROFILE_DIR"
@@ -539,6 +580,12 @@ ensure_freellmapi_running() {
   info "Waiting for FreeLLMAPI to respond..."
   if wait_for_freellmapi 30 2; then
     say "FreeLLMAPI is running!"
+
+    # ── Extract one-time setup code from Docker logs ──────────────────────
+    if [[ -z "$SETUP_CODE" ]]; then
+      SETUP_CODE="$(docker logs freellmapi 2>/dev/null | grep -m1 'First-run setup code:' | sed 's/.*First-run setup code: *//')"
+    fi
+
     return 0
   else
     die "FreeLLMAPI didn't start. Check: cd $INSTALL_DIR && docker compose logs freellmapi"
@@ -740,15 +787,13 @@ uninstall_all() {
   fi
 
   # ── Delete Hermes profile ────────────────────────────────────────────────
-  if command -v hermes >/dev/null 2>&1 && hermes profile list 2>/dev/null | grep -qFx "$HERMES_PROFILE"; then
+  # grep -q (not -Fx): hermes profile list outputs a table, not plain names.
+  if command -v hermes >/dev/null 2>&1 && hermes profile list 2>/dev/null | grep -q "$HERMES_PROFILE"; then
     say "Deleting Hermes profile '$HERMES_PROFILE'..."
-    hermes profile delete "$HERMES_PROFILE" 2>/dev/null || {
-      if [[ -d "$PROFILE_DIR" ]]; then
-        rm -rf "$PROFILE_DIR"
-        info "Manually removed profile directory: $PROFILE_DIR"
-      fi
-    }
-  elif [[ -d "$PROFILE_DIR" ]]; then
+    hermes profile delete -y "$HERMES_PROFILE" 2>/dev/null || true
+  fi
+  # Remove profile directory whether registered or not (belt and suspenders)
+  if [[ -d "$PROFILE_DIR" ]]; then
     rm -rf "$PROFILE_DIR"
     info "Removed profile directory: $PROFILE_DIR"
   fi
@@ -762,35 +807,39 @@ uninstall_all() {
 
 print_summary() {
   header "Installation Complete!"
+  echo ""
 
-  cat <<EOF
-  ${BOLD}FreeLLMAPI${NC} is running at:    ${CYAN}$DASHBOARD_URL${NC}
-  ${BOLD}Hermes profile${NC} created:     ${CYAN}$HERMES_PROFILE${NC}
+  printf "  ${BOLD}FreeLLMAPI${NC} is running at:    ${CYAN}%s${NC}\n" "$DASHBOARD_URL"
+  printf "  ${BOLD}Hermes profile${NC} created:     ${CYAN}%s${NC}\n" "$HERMES_PROFILE"
+  echo ""
 
-  ┌─────────────────────────────────────────────────────────────────┐
-  │ ${BOLD}NEXT STEPS${NC}                                                  │
-  ├─────────────────────────────────────────────────────────────────┤
-  │                                                                 │
-  │  ${BOLD}1.${NC} Open dashboard: ${CYAN}$DASHBOARD_URL${NC}                           │
-  │     Create an account (email + password).                      │
-  │                                                                 │
-  │  ${BOLD}2.${NC} Sign up for free-tier providers (Google, Groq, etc.)   │
-  │     and paste their API keys into the FreeLLMAPI Keys page.    │
-  │                                                                 │
-  │  ${BOLD}3.${NC} Copy your Unified API Key from the Keys page.           │
-  │                                                                 │
-  │  ${BOLD}4.${NC} Run: ${GREEN}./install.sh --configure${NC}                         │
-  │     (This auto-discovers your key and wires up Hermes.)        │
-  │                                                                 │
-  │  ${BOLD}5.${NC} Start using Hermes with FreeLLMAPI:                      │
-  │     ${GREEN}hermes --profile $HERMES_PROFILE${NC}                                  │
-  │                                                                 │
-  └─────────────────────────────────────────────────────────────────┘
+  echo   "  ┌────────────────────────────────────────────────────────────────┐"
+  printf "  │ ${BOLD}NEXT STEPS${NC}                                                     │\n"
+  echo   "  ├────────────────────────────────────────────────────────────────┤"
+  echo   "  │                                                                │"
+  printf "  │ ${BOLD}1.${NC} Open dashboard: ${CYAN}%s${NC}                       │\n" "$DASHBOARD_URL"
+  if [[ -n "$SETUP_CODE" ]]; then
+    printf "  │      Setup code (if prompted): ${CYAN}%s${NC}                      │\n" "$SETUP_CODE"
+  fi
+  echo   "  │      Create an account (email + password).                     │"
+  echo   "  │                                                                │"
+  printf "  │ ${BOLD}2.${NC} Sign up for free-tier providers (Google, Groq, etc.)        │\n"
+  echo   "  │      and paste their API keys into the FreeLLMAPI Keys page.   │"
+  echo   "  │                                                                │"
+  printf "  │ ${BOLD}3.${NC} Copy your Unified API Key from the Keys page.               │\n"
+  echo   "  │                                                                │"
+  printf "  │ ${BOLD}4.${NC} Run: ${GREEN}./install.sh --configure${NC}                               │\n"
+  echo   "  │      (This auto-discovers your key and wires up Hermes.)       │"
+  echo   "  │                                                                │"
+  printf "  │ ${BOLD}5.${NC} Start using Hermes with FreeLLMAPI:                         │\n"
+  printf "  │     ${GREEN}hermes --profile %s${NC}                                │\n" "$HERMES_PROFILE"
+  echo   "  │                                                                │"
+  echo   "  └────────────────────────────────────────────────────────────────┘"
+  echo ""
 
-  ${BOLD}Headless / CI:${NC}
-    FREELLMAPI_KEY=freellmapi-... ./install.sh --configure
-
-EOF
+  printf "  ${BOLD}Headless / CI:${NC}\n"
+  echo   "    FREELLMAPI_KEY=freellmapi-... ./install.sh --configure"
+  echo   ""
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
