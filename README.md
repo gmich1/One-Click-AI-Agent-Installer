@@ -40,7 +40,7 @@ Open **Terminal.app** and run these commands in order.
 
 ```bash
 cd ~/Desktop
-git clone https://github.com/<your-org>/hermes-freellmapi.git
+git clone https://github.com/gmich1/hermes-freellmapi.git
 cd hermes-freellmapi
 ```
 
@@ -50,7 +50,7 @@ Or without git:
 cd ~/Desktop
 mkdir -p hermes-freellmapi
 cd hermes-freellmapi
-curl -fsSL https://raw.githubusercontent.com/<your-org>/hermes-freellmapi/main/install.sh -o install.sh
+curl -fsSL https://raw.githubusercontent.com/gmich1/hermes-freellmapi/main/install.sh -o install.sh
 chmod +x install.sh
 ```
 
@@ -112,7 +112,7 @@ Same commands — the installer auto-detects the OS and adjusts accordingly (Doc
 
 ```bash
 cd ~
-git clone https://github.com/<your-org>/hermes-freellmapi.git
+git clone https://github.com/gmich1/hermes-freellmapi.git
 cd hermes-freellmapi
 chmod +x install.sh
 ./install.sh
