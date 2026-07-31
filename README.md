@@ -40,17 +40,17 @@ Open **Terminal.app** and run these commands in order.
 
 ```bash
 cd ~/Desktop
-git clone https://github.com/gmich1/hermes-freellmapi.git
-cd hermes-freellmapi
+git clone https://github.com/gmich1/One-Click-AI-Agent-Installer.git
+cd One-Click-AI-Agent-Installer
 ```
 
 Or without git:
 
 ```bash
 cd ~/Desktop
-mkdir -p hermes-freellmapi
-cd hermes-freellmapi
-curl -fsSL https://raw.githubusercontent.com/gmich1/hermes-freellmapi/main/install.sh -o install.sh
+mkdir -p One-Click-AI-Agent-Installer
+cd One-Click-AI-Agent-Installer
+curl -fsSL https://raw.githubusercontent.com/gmich1/One-Click-AI-Agent-Installer/main/install.sh -o install.sh
 chmod +x install.sh
 ```
 
@@ -69,7 +69,7 @@ Open `http://localhost:3001` in your browser. Create an admin account, then sign
 ### 4. Wire the key into Hermes
 
 ```bash
-cd ~/Desktop/hermes-freellmapi
+cd ~/Desktop/One-Click-AI-Agent-Installer
 ./install.sh --configure
 ```
 
@@ -102,7 +102,7 @@ hermes profile use default
 ### Headless / CI
 
 ```bash
-cd ~/Desktop/hermes-freellmapi
+cd ~/Desktop/One-Click-AI-Agent-Installer
 FREELLMAPI_KEY=freellmapi-abc123 ./install.sh --configure
 ```
 
@@ -112,8 +112,8 @@ Same commands — the installer auto-detects the OS and adjusts accordingly (Doc
 
 ```bash
 cd ~
-git clone https://github.com/gmich1/hermes-freellmapi.git
-cd hermes-freellmapi
+git clone https://github.com/gmich1/One-Click-AI-Agent-Installer.git
+cd One-Click-AI-Agent-Installer
 chmod +x install.sh
 ./install.sh
 ```
@@ -218,7 +218,7 @@ hermes chat \
 ## What's in the box
 
 ```
-hermes-freellmapi/
+One-Click-AI-Agent-Installer/
 ├── install.sh          # The main installer
 ├── README.md           # This file
 └── providers.md        # Full provider signup reference
@@ -233,7 +233,7 @@ hermes-freellmapi/
 ## Uninstall
 
 ```bash
-cd ~/Desktop/hermes-freellmapi
+cd ~/Desktop/One-Click-AI-Agent-Installer
 ./install.sh --uninstall
 ```
 
